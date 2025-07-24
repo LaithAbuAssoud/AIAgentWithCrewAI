@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agent Configuration Dashboard</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          sans-serif;
+        line-height: 1.6;
+        margin: 0;
+        padding: 20px;
+        background-color: #f5f5f5;
+      }
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+      h1,
+      h2 {
+        color: #333;
+        border-bottom: 2px solid #007cba;
+        padding-bottom: 10px;
+      }
+      .status-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 20px;
+        margin-bottom: 30px;
+      }
+      .status-card {
+        background: #f8f9fa;
+        padding: 15px;
+        border-radius: 6px;
+        border-left: 4px solid #007cba;
+      }
+      .status-card h3 {
+        margin: 0 0 10px 0;
+        color: #495057;
+      }
+      .config-section {
+        margin-bottom: 30px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 12px;
+        border-bottom: 1px solid #dee2e6;
+      }
+      th {
+        background-color: #e9ecef;
+        font-weight: 600;
+      }
+      tr:hover {
+        background-color: #f8f9fa;
+      }
+      .badge {
+        display: inline-block;
+        padding: 4px 8px;
+        font-size: 12px;
+        font-weight: bold;
+        border-radius: 4px;
+        text-transform: uppercase;
+      }
+      .badge-active {
+        background-color: #d4edda;
+        color: #155724;
+      }
+      .badge-inactive {
+        background-color: #f8d7da;
+        color: #721c24;
+      }
+      .badge-fallback {
+        background-color: #fff3cd;
+        color: #856404;
+      }
+      .badge-completed {
+        background-color: #d1ecf1;
+        color: #0c5460;
+      }
+      .badge-failed {
+        background-color: #f8d7da;
+        color: #721c24;
+      }
+      .prompt-content {
+        max-width: 300px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .test-buttons {
+        margin: 20px 0;
+      }
+      .btn {
+        display: inline-block;
+        padding: 10px 20px;
+        margin-right: 10px;
+        background-color: #007cba;
+        color: white;
+        text-decoration: none;
+        border-radius: 4px;
+        border: none;
+        cursor: pointer;
+      }
+      .btn:hover {
+        background-color: #005a87;
+      }
+      .btn-secondary {
+        background-color: #6c757d;
+      }
+      .btn-secondary:hover {
+        background-color: #545b62;
+      }
+      #test-results {
+        margin-top: 20px;
+        padding: 15px;
+        border-radius: 4px;
+        display: none;
+      }
+      .success {
+        background-color: #d4edda;
+        color: #155724;
+        border: 1px solid #c3e6cb;
+      }
+      .error {
+        background-color: #f8d7da;
+        color: #721c24;
+        border: 1px solid #f5c6cb;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>🤖 Agent Configuration Dashboard</h1>
+
+      <!-- Status Overview -->
+      <div class="status-grid">
+        <div class="status-card">
+          <h3>Active Models</h3>
+          <p><strong>{{ model_configs.count }}</strong> configured</p>
+          <p>
+            {% if model_configs.0 %}Current: {{ model_configs.0.name }}{% else
+            %}None active{% endif %}
+          </p>
+        </div>
+        <div class="status-card">
+          <h3>Agents</h3>
+          <p><strong>{{ agent_configs.count }}</strong> active agents</p>
+          <p>{{ task_configs.count }} configured tasks</p>
+        </div>
+        <div class="status-card">
+          <h3>Templates</h3>
+          <p><strong>{{ prompt_templates.count }}</strong> prompt templates</p>
+          <p>{{ system_configs.count }} system configs</p>
+        </div>
+        <div class="status-card">
+          <h3>Sessions</h3>
+          <p><strong>{{ recent_sessions.count }}</strong> recent sessions</p>
+          <p>{{ recent_errors.count }} unresolved errors</p>
+        </div>
+      </div>
+
+      <!-- Test Buttons -->
+      <div class="test-buttons">
+        <button class="btn" onclick="runTest('basic')">
+          🧪 Test Configuration
+        </button>
+        <button class="btn btn-secondary" onclick="runTest('full')">
+          🚀 Full Test
+        </button>
+        <a href="/admin/agent/" class="btn btn-secondary">⚙️ Admin Panel</a>
+      </div>
+
+      <div id="test-results"></div>
+
+      <!-- Model Configurations -->
+      <div class="config-section">
+        <h2>🔧 Model Configurations</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Model</th>
+              <th>Temperature</th>
+              <th>Max Tokens</th>
+              <th>Priority</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for config in model_configs %}
+            <tr>
+              <td><strong>{{ config.name }}</strong></td>
+              <td>{{ config.model_name }}</td>
+              <td>{{ config.temperature }}</td>
+              <td>{{ config.max_tokens }}</td>
+              <td>{{ config.priority }}</td>
+              <td>
+                <span class="badge badge-active">Active</span>
+                {% if config.is_fallback %}<span class="badge badge-fallback"
+                  >Fallback</span
+                >{% endif %}
+              </td>
+            </tr>
+            {% empty %}
+            <tr>
+              <td colspan="6">No active model configurations found.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Agent Configurations -->
+      <div class="config-section">
+        <h2>🤖 Agent Configurations</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Role</th>
+              <th>Goal</th>
+              <th>Model</th>
+              <th>Timeout</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for agent in agent_configs %}
+            <tr>
+              <td><strong>{{ agent.get_agent_type_display }}</strong></td>
+              <td>{{ agent.role }}</td>
+              <td class="prompt-content">{{ agent.goal|truncatechars:100 }}</td>
+              <td>{{ agent.model_config.name }}</td>
+              <td>{{ agent.max_execution_time }}s</td>
+            </tr>
+            {% empty %}
+            <tr>
+              <td colspan="5">No active agent configurations found.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Task Configurations -->
+      <div class="config-section">
+        <h2>📋 Task Configurations</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Order</th>
+              <th>Type</th>
+              <th>Name</th>
+              <th>Agent</th>
+              <th>Token Limit</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for task in task_configs %}
+            <tr>
+              <td>{{ task.execution_order }}</td>
+              <td><strong>{{ task.get_task_type_display }}</strong></td>
+              <td>{{ task.name }}</td>
+              <td>{{ task.agent_config.role }}</td>
+              <td>{{ task.token_limit }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+              <td colspan="5">No active task configurations found.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Prompt Templates -->
+      <div class="config-section">
+        <h2>📝 Prompt Templates</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Type</th>
+              <th>Variables</th>
+              <th>Content Preview</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for template in prompt_templates %}
+            <tr>
+              <td><strong>{{ template.name }}</strong></td>
+              <td>{{ template.get_template_type_display }}</td>
+              <td>{{ template.variables|join:", " }}</td>
+              <td class="prompt-content">
+                {{ template.content|truncatechars:150 }}
+              </td>
+            </tr>
+            {% empty %}
+            <tr>
+              <td colspan="4">No active prompt templates found.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Recent Sessions -->
+      <div class="config-section">
+        <h2>📊 Recent Sessions</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Session ID</th>
+              <th>Candidate</th>
+              <th>Job Title</th>
+              <th>Status</th>
+              <th>Execution Time</th>
+              <th>Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for session in recent_sessions %}
+            <tr>
+              <td><strong>{{ session.session_id }}</strong></td>
+              <td>{{ session.candidate_name|default:"Unknown" }}</td>
+              <td>{{ session.job_title|default:"Unknown" }}</td>
+              <td>
+                {% if session.status == 'completed' %}
+                <span class="badge badge-completed"
+                  >{{ session.status|title }}</span
+                >
+                {% elif session.status == 'failed' %}
+                <span class="badge badge-failed"
+                  >{{ session.status|title }}</span
+                >
+                {% else %}
+                <span class="badge badge-active"
+                  >{{ session.status|title }}</span
+                >
+                {% endif %}
+              </td>
+              <td>
+                {% if session.execution_time %}{{
+                session.execution_time|floatformat:2 }}s{% else %}-{% endif %}
+              </td>
+              <td>{{ session.created_at|date:"M d, H:i" }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+              <td colspan="6">No sessions found.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Recent Errors -->
+      {% if recent_errors %}
+      <div class="config-section">
+        <h2>⚠️ Recent Errors</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Message</th>
+              <th>Session</th>
+              <th>Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for error in recent_errors %}
+            <tr>
+              <td><strong>{{ error.get_error_type_display }}</strong></td>
+              <td class="prompt-content">
+                {{ error.message|truncatechars:100 }}
+              </td>
+              <td>
+                {% if error.session %}{{ error.session.session_id }}{% else
+                %}-{% endif %}
+              </td>
+              <td>{{ error.created_at|date:"M d, H:i" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+    </div>
+
+    <script>
+      async function runTest(testType) {
+        const resultDiv = document.getElementById("test-results");
+        resultDiv.style.display = "block";
+        resultDiv.className = "";
+        resultDiv.innerHTML = `<p>🔄 Running ${testType} test...</p>`;
+
+        try {
+          const response = await fetch("/agent/test/", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              test_type: testType,
+              test_data: {
+                candidate_name: "Test Candidate",
+                job_title: "Software Engineer",
+                resume: "Experienced developer with Python skills...",
+                interview_notes: "Strong technical background...",
+              },
+            }),
+          });
+
+          const result = await response.json();
+
+          if (result.success) {
+            resultDiv.className = "success";
+            resultDiv.innerHTML = `
+                        <h3>✅ Test Successful</h3>
+                        <p><strong>Test Type:</strong> ${result.test_type}</p>
+                        ${
+                          result.session_id
+                            ? `<p><strong>Session ID:</strong> ${result.session_id}</p>`
+                            : ""
+                        }
+                        ${
+                          result.execution_time
+                            ? `<p><strong>Execution Time:</strong> ${result.execution_time.toFixed(
+                                2
+                              )}s</p>`
+                            : ""
+                        }
+                        <pre>${JSON.stringify(
+                          result.results || result,
+                          null,
+                          2
+                        )}</pre>
+                    `;
+          } else {
+            throw new Error(result.error || "Test failed");
+          }
+        } catch (error) {
+          resultDiv.className = "error";
+          resultDiv.innerHTML = `
+                    <h3>❌ Test Failed</h3>
+                    <p><strong>Error:</strong> ${error.message}</p>
+                `;
+        }
+      }
+    </script>
+  </body>
+</html>
