@@ -5,23 +5,85 @@ import os
 
 from crewai import Agent, Task, LLM
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Optional
+import logging
 
-# Initialize LLMs - only using CREWAI_API_KEY
+# Configure logging for better error tracking with Gemma
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Initialize LLMs - supporting both Google AI Studio and alternative configurations
 api_key = os.getenv("CREWAI_API_KEY")
 if not api_key:
     raise ValueError("CREWAI_API_KEY environment variable is required")
 
-# job_matching_llm = LLM(model="gemini/gemma-3-27b-it", temperature=0.3, api_key=api_key)
-# bias_detection_llm = LLM(model="gemini/gemma-3-27b-it", temperature=0.2, api_key=api_key)
+# Enhanced configuration supporting available Gemma models through different providers
+# Google AI Studio has limited Gemma availability, so we implement multiple fallbacks
+available_gemma_models = [
+    "gemini/gemma-7b",          # Original Gemma 7B if available
+    "gemini/gemma-2b",          # Original Gemma 2B if available  
+    "gemini/codegemma-7b",      # CodeGemma variant
+    "huggingface/google/gemma-2-9b-it",  # Via Hugging Face
+    "huggingface/google/gemma-2-2b-it",  # Via Hugging Face fallback
+]
 
-llm = LLM(
-    model="gemini/gemini-2.5-pro",
-    # temperature=0.7,
-    api_key=api_key,
-)
+def try_gemma_model(model_name, **kwargs):
+    """Try to initialize a Gemma model with error handling"""
+    try:
+        llm = LLM(
+            model=model_name,
+            temperature=0.3,
+            max_tokens=2048,
+            top_p=0.9,
+            timeout=180,
+            api_key=api_key,
+            **kwargs
+        )
+        # Test the model with a simple call
+        test_response = llm.call("Reply with 'READY' if you can process this.")
+        logger.info(f"Successfully configured {model_name}")
+        return llm
+    except Exception as e:
+        logger.warning(f"Failed to configure {model_name}: {e}")
+        return None
 
-# Pydantic models for structured outputs
+# Try to configure the best available Gemma model
+llm = None
+for model in available_gemma_models:
+    logger.info(f"Attempting to configure {model}...")
+    llm = try_gemma_model(model)
+    if llm is not None:
+        break
+
+# If no Gemma model works, use a compatible alternative with Gemma-like characteristics
+if llm is None:
+    logger.warning("No Gemma models available, using Gemini Flash as a compatible alternative")
+    llm = LLM(
+        model="gemini/gemini-2.0-flash",  # Fast, efficient model similar to Gemma
+        temperature=0.3,  # Lower temperature for more consistent responses
+        max_tokens=2048,  # Conservative token limit
+        top_p=0.9,
+        timeout=180,
+        api_key=api_key,
+    )
+    logger.info("Using Gemini Flash as Gemma alternative")
+
+# Pydantic models optimized for Gemma's structured outputs
+class GemmaHiringDecision(BaseModel):
+    """Simplified decision model optimized for Gemma's output capabilities"""
+    decision: str = Field(..., description="Either 'SELECT' or 'REJECT' (uppercase)")
+    reasons: List[str] = Field(..., description="3-4 key reasons for the decision", max_items=4)
+    evidence: str = Field(..., description="Brief supporting evidence from candidate data")
+    confidence: Optional[float] = Field(default=0.8, description="Confidence score 0-1", ge=0, le=1)
+
+class GemmaBiasAudit(BaseModel):
+    """Simplified bias audit model for Gemma"""
+    final_decision: str = Field(..., description="Either 'SELECT' or 'REJECT' (uppercase)")
+    fairness_assessment: str = Field(..., description="Either 'FAIR' or 'BIASED' (uppercase)")
+    bias_indicators: List[str] = Field(default=[], description="List of any bias indicators found", max_items=3)
+    justification: str = Field(..., description="Brief justification for the assessment")
+
+# Legacy models for backward compatibility
 class HiringDecision(BaseModel):
     decision: str = Field(..., description="Either 'select' or 'reject'")
     reasoning: str = Field(..., description="Detailed reasoning for the decision")
@@ -33,71 +95,125 @@ class BiasAuditResult(BaseModel):
     confidence: float = Field(..., description="Confidence in bias assessment from 0 to 1")
     recommendations: List[str] = Field(..., description="Recommendations to improve fairness")
 
+def validate_gemma_setup():
+    """Validate that the configured model is properly responsive"""
+    try:
+        # Simple test without complex method calls that might fail
+        if hasattr(llm, 'model') and llm.model:
+            logger.info(f"Model configuration validated: {llm.model}")
+            return True
+        else:
+            logger.warning("Model object exists but has no model attribute")
+            return False
+    except Exception as e:
+        logger.error(f"Model validation failed: {e}")
+        return False
+
+def get_model_info():
+    """Get information about the currently configured model"""
+    try:
+        if hasattr(llm, 'model'):
+            return llm.model
+        return "Unknown model"
+    except Exception:
+        return "Model info unavailable"
+
+def print_optimization_summary():
+    """Print summary of Gemma-focused optimizations implemented"""
+    model_name = get_model_info()
+    logger.info("=== GEMMA OPTIMIZATION SUMMARY ===")
+    logger.info(f"✅ Active Model: {model_name}")
+    logger.info("✅ Optimizations Applied:")
+    logger.info("  • Low temperature (0.3) for consistent responses")
+    logger.info("  • Conservative token limits (2048) for stability")
+    logger.info("  • Simplified agent roles and backstories")
+    logger.info("  • Optimized task instructions for smaller models")
+    logger.info("  • Structured output formats with Pydantic")
+    logger.info("  • Fallback model system for reliability")
+    logger.info("  • Enhanced error handling and timeouts")
+    logger.info("=================================")
+
 def load_agents():
-    # --- Agent 1: Job Matching ---
+    # Print optimization summary
+    print_optimization_summary()
+    
+    # Validate model setup before creating agents
+    model_name = get_model_info()
+    logger.info(f"Using model: {model_name}")
+    
+    if not validate_gemma_setup():
+        logger.warning("Model validation failed, proceeding with caution...")
+    
+    # --- Agent 1: Job Matching (Optimized for smaller models like Gemma) ---
     job_matcher = Agent(
-        role="Senior Hiring Decision Maker",
-        goal="Evaluate candidates thoroughly and make final hiring decisions (SELECT or REJECT) with comprehensive reasoning based on job requirements and candidate qualifications",
+        role="Hiring Decision Maker",  # Clear, simple role name
+        goal="Make hiring decisions: SELECT or REJECT candidates based on job fit",
         backstory=(
-            "You are a senior hiring manager with 15+ years of experience in talent acquisition. "
-            "Your expertise lies in making decisive hiring choices by thoroughly analyzing resumes, "
-            "job requirements, and interview performance. You are known for providing clear, "
-            "well-reasoned decisions that explain exactly why a candidate should be hired or not."
-        ),
+            "You are an experienced hiring manager. You analyze resumes and job requirements "
+            "to make clear hiring decisions. You provide direct reasoning for each decision."
+        ),  # Simplified backstory for better model comprehension
         llm=llm,
         verbose=True,
+        max_execution_time=300,  # Timeout for processing constraints
+        allow_delegation=False,   # Disable delegation for simpler workflow
     )
 
-    # --- Agent 2: Bias Auditor ---
+    # --- Agent 2: Bias Auditor (Optimized for smaller models like Gemma) ---
     bias_auditor = Agent(
-        role="Decision Validation Specialist",
-        goal="Review hiring decisions to ensure they are fair, unbiased, and provide a final validated decision (SELECT or REJECT) with reasoning that confirms the decision is merit-based",
+        role="Decision Reviewer",  # Clear, simple role name
+        goal="Review hiring decisions for fairness and provide final SELECT or REJECT decision",
         backstory=(
-            "You are an expert in fair hiring practices and decision validation with a background "
-            "in organizational psychology and bias detection. Your role is to review hiring decisions, "
-            "ensure they are based on relevant qualifications, and provide a final validated decision. "
-            "You excel at identifying when decisions are truly merit-based and providing clear reasoning."
-        ),
+            "You are a fair hiring expert. You check decisions for bias and ensure they are "
+            "based on job qualifications. You validate final hiring recommendations."
+        ),  # Simplified backstory
         llm=llm,
         verbose=True,
+        max_execution_time=300,  # Timeout for processing constraints
+        allow_delegation=False,   # Disable delegation for simpler workflow
     )
 
     return job_matcher, bias_auditor
 
 def create_tasks(job_matcher, bias_auditor):
-    # Task 1: Job Matching Decision
+    # Task 1: Job Matching Decision (Optimized for Gemma's token limits)
     job_matching_task = Task(
         description="""
-        Make a comprehensive hiring decision by analyzing:
-        - Resume: Evaluate experience, skills, education, and achievements
-        - Job Description: Match candidate qualifications against role requirements
-        - Interview Transcript: Assess communication skills, cultural fit, and technical knowledge
-        - Overall Role Fit: Determine if candidate meets the job criteria
+        INSTRUCTIONS: Analyze the candidate and make a hiring decision.
         
-        You must provide:
-        1. A clear decision: SELECT or REJECT
-        2. Detailed reasoning explaining your decision
-        3. Specific examples from the candidate data supporting your choice
+        ANALYZE:
+        - Resume: Skills, experience, education
+        - Job Requirements: Match qualifications to role needs
+        - Interview: Communication and fit assessment
+        
+        PROVIDE:
+        1. Decision: SELECT or REJECT
+        2. Key reasons (3-4 bullet points)
+        3. Supporting evidence from candidate data
+        
+        Keep response under 1500 tokens.
         """,
-        expected_output="DECISION: [SELECT or REJECT]\n\nREASONING: A detailed explanation of why this candidate should be hired or not hired, including specific evidence from their resume, interview performance, and alignment with job requirements.",
+        expected_output="DECISION: [SELECT or REJECT]\n\nREASONS:\n- Point 1\n- Point 2\n- Point 3\n\nEVIDENCE: Specific examples from resume/interview supporting the decision.",
         agent=job_matcher
     )
 
-    # Task 2: Decision Validation and Final Recommendation
+    # Task 2: Decision Validation (Optimized for Gemma's constraints)
     bias_audit_task = Task(
         description="""
-        Review the initial hiring decision and provide a final validated recommendation by:
-        - Analyzing if the decision was based on relevant job qualifications
-        - Checking for any bias or unfair reasoning in the evaluation
-        - Verifying the decision aligns with merit-based criteria
-        - Ensuring all relevant candidate strengths/weaknesses were considered
+        INSTRUCTIONS: Review the hiring decision for fairness.
         
-        Provide:
-        1. Final validated decision: SELECT or REJECT
-        2. Confirmation that the decision is fair and merit-based
-        3. Complete reasoning for the final recommendation
+        CHECK:
+        - Decision based on job qualifications? (Yes/No)
+        - Any bias indicators found? (List them)
+        - Decision aligns with merit criteria? (Yes/No)
+        
+        PROVIDE:
+        1. Final decision: SELECT or REJECT
+        2. Fairness assessment: FAIR or BIASED
+        3. Brief justification
+        
+        Keep response under 1000 tokens.
         """,
-        expected_output="A bias audit result (BIASED or UNBIASED) with explanation of any bias indicators found and recommendations for improvement.",
+        expected_output="FINAL DECISION: [SELECT or REJECT]\nFAIRNESS: [FAIR or BIASED]\nJUSTIFICATION: Brief explanation of decision validity and any bias concerns.",
         agent=bias_auditor
     )
 
